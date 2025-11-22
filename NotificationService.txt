@@ -1,0 +1,302 @@
+Below is the **complete Notification Service design**, including:
+
+* **Notification service responsibilities (as per PDF workflow pg 2–3)**
+* **REST APIs**
+* **Internal asynchronous event model (recommended for scalability)**
+* **Database schema**
+* **Interaction with Payment, Merchant & Wallet services**
+
+Everything is aligned with the workflow in your file where **notification must be sent after successful payment** .
+
+---
+
+# ✅ **1. Notification Service – Responsibilities**
+
+From the workflow on page 2–3 of your PDF:
+
+✔ Send notification to merchant on **successful processing of payment**
+✔ Notify the user of payment status (success/failure)
+✔ Support email/SMS/push channels
+✔ Support asynchronous events from Payment Service
+✔ Track notification delivery status
+✔ Store audit logs for notifications
+
+---
+
+# ✅ **2. Notification Service – API Design**
+
+Although notifications are best triggered via **events (Kafka/RabbitMQ)** from Payment Service, the service still needs REST APIs for:
+
+* External or manual notifications
+* Debugging
+* Retry triggers
+* Querying notification history
+
+---
+
+# **API 1: Send Notification to Merchant (REST endpoint)**
+
+**POST /api/v1/notification/merchant**
+
+### **Purpose**
+
+Payment Service calls this after merchant credit and ledger update.
+
+### **Request Payload**
+
+```json
+{
+  "transactionId": "TXN-99111",
+  "merchantId": "M456",
+  "amount": 2475.00,
+  "currency": "INR",
+  "message": "Payment successfully credited to your account"
+}
+```
+
+### **Response**
+
+```json
+{
+  "notificationId": "NOTIF-55781",
+  "status": "DELIVERED"
+}
+```
+
+---
+
+# **API 2: Send Notification to Customer**
+
+**POST /api/v1/notification/customer**
+
+Used by Payment Service or Wallet Service.
+
+### **Request**
+
+```json
+{
+  "customerId": "C123",
+  "transactionId": "TXN-99111",
+  "status": "SUCCESS",
+  "message": "Your payment of INR 2500 for Nike Shoes was successful."
+}
+```
+
+### **Response**
+
+```json
+{
+  "notificationId": "NOTIF-88321",
+  "status": "DELIVERED"
+}
+```
+
+---
+
+# **API 3: Get Notification Status**
+
+**GET /api/v1/notification/{notificationId}**
+
+### **Response**
+
+```json
+{
+  "notificationId": "NOTIF-55781",
+  "transactionId": "TXN-99111",
+  "status": "DELIVERED",
+  "channel": "EMAIL",
+  "sentAt": "2025-11-22T09:47:33Z"
+}
+```
+
+---
+
+# **API 4: List Notifications for Merchant**
+
+**GET /api/v1/notification/merchant/{merchantId}**
+
+---
+
+# **API 5: List Notifications for Customer**
+
+**GET /api/v1/notification/customer/{customerId}**
+
+---
+
+# **API 6: Retry Failed Notifications**
+
+**POST /api/v1/notification/{notificationId}/retry**
+
+Retry logic is important for reliability.
+
+---
+
+# **API 7: Generic Notification API (Optional)**
+
+**POST /api/v1/notification/send**
+
+Allows sending custom notifications.
+
+---
+
+# ✅ **3. Recommended Event-Based Integration**
+
+Payment Service publishes:
+
+```
+EVENT: PAYMENT_SUCCESS
+EVENT: PAYMENT_FAILED
+```
+
+Notification Service consumes:
+
+```
+Topic: payments.notifications
+```
+
+Example event payload:
+
+```json
+{
+  "eventType": "PAYMENT_SUCCESS",
+  "transactionId": "TXN-99111",
+  "customerId": "C123",
+  "merchantId": "M456",
+  "amount": 2500,
+  "currency": "INR",
+  "productName": "Nike Shoes"
+}
+```
+
+Notification Service then:
+
+1. Sends merchant notification
+2. Sends customer notification
+3. Logs the event
+
+---
+
+# ✅ **4. Notification Service Database Design**
+
+Matches notification requirements on pg 3 of your PDF (audit, status accuracy, processing sequence) .
+
+---
+
+# **A. notification table**
+
+Stores every notification sent.
+
+| Column          | Type                                             | Description           |
+| --------------- | ------------------------------------------------ | --------------------- |
+| notification_id | VARCHAR                                          | PK                    |
+| transaction_id  | VARCHAR                                          | FK to payment service |
+| customer_id     | VARCHAR                                          | nullable              |
+| merchant_id     | VARCHAR                                          | nullable              |
+| channel         | ENUM(EMAIL, SMS, PUSH)                           | delivery method       |
+| status          | ENUM(PENDING, SENT, DELIVERED, FAILED, RETRYING) |                       |
+| message         | TEXT                                             |                       |
+| created_at      | TIMESTAMP                                        |                       |
+| sent_at         | TIMESTAMP                                        |                       |
+| delivered_at    | TIMESTAMP                                        |                       |
+
+---
+
+# **B. notification_retry_log**
+
+Tracks retries by Notification Service.
+
+| Column          | Type                  |
+| --------------- | --------------------- |
+| id              | BIGINT PK             |
+| notification_id | VARCHAR               |
+| retry_count     | INT                   |
+| status          | ENUM(SUCCESS, FAILED) |
+| timestamp       | TIMESTAMP             |
+
+---
+
+# **C. notification_event_log**
+
+Stores raw events received from Payment Service.
+
+Useful for:
+
+* Debugging
+* Replaying events
+* Auditing
+
+| Column         | Type       |
+| -------------- | ---------- |
+| event_id       | VARCHAR PK |
+| event_type     | VARCHAR    |
+| transaction_id | VARCHAR    |
+| payload        | TEXT       |
+| timestamp      | TIMESTAMP  |
+
+---
+
+# **D. communication_channel_config** (optional)
+
+Defines templates per channel.
+
+| Column        | Type    |
+| ------------- | ------- |
+| id            | BIGINT  |
+| channel       | ENUM    |
+| template_name | VARCHAR |
+| template_body | TEXT    |
+
+---
+
+# ✅ **5. Notification Service Internal Architecture**
+
+```
+NotificationService
+ ├── controllers
+ │     ├── MerchantNotificationController
+ │     ├── CustomerNotificationController
+ │     ├── NotificationQueryController
+ ├── services
+ │     ├── NotificationDispatcher
+ │     ├── EmailSender
+ │     ├── SmsSender
+ │     ├── PushSender
+ │     ├── RetryService
+ │     ├── TemplateService
+ ├── event-consumers
+ │     ├── PaymentEventConsumer (Kafka listener)
+ ├── repositories
+ │     ├── NotificationRepository
+ │     ├── NotificationRetryRepository
+ │     ├── NotificationEventLogRepository
+```
+
+---
+
+# 🧩 **6. End-to-End Notification Flow**
+
+### **When payment succeeds**
+
+1. Payment Service → publishes event
+2. Notification Service consumes event
+3. Creates 2 entries in `notification` table
+4. Sends:
+
+   * Merchant alert
+   * Customer alert
+5. Updates both records → DELIVERED
+6. Logs event in `notification_event_log`
+
+---
+
+# 🎁 Want Next?
+
+I can generate:
+
+✔ **Settlement Service API + DB Design**
+✔ **Complete microservice-level sequence diagram**
+✔ **Swagger YAML for Notification Service**
+✔ **Spring Boot code templates**
+✔ **Event-schema for Kafka/RabbitMQ**
+
+Tell me what you want!
