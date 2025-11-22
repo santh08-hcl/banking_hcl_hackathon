@@ -1,0 +1,344 @@
+Below is a **complete, production-grade design of the Payment Service**, including:
+
+* **Payment Service responsibilities (from PDF pg 3)**
+* **Payment Service endpoints (REST APIs)**
+* **Request/response schemas**
+* **Internal processing & compensation**
+* **Database schema (tables + relationships)**
+* **Interaction with Wallet, Merchant & Notification services**
+
+All aligned with your PDF (pg 2–3) .
+
+---
+
+# ✅ **1. Payment Service – Responsibilities (from PDF pg 3)**
+
+From your document, the Payment Service must:
+
+✔ Deduct amount from wallet
+✔ Credit merchant account
+✔ Update transaction ledger
+✔ Capture audit information across the transaction
+✔ Notify merchant
+✔ Collect wallet fee (after success)
+✔ Handle compensations on failure
+✔ Ensure transactional integrity
+
+---
+
+# ✅ **2. Payment Service Core APIs**
+
+---
+
+## **API 1: Execute Payment**
+
+### **POST /api/v1/payment/execute**
+
+This is the API that Wallet Service calls (after validating request).
+
+### **Request Payload**
+
+```json
+{
+  "customerId": "C123",
+  "walletId": "W123",
+  "merchantId": "M456",
+  "amount": 2500.00,
+  "currency": "INR",
+  "productName": "Nike Shoes",
+  "requestId": "REQ-77881"
+}
+```
+
+### **Business Flow**
+
+1. Lock wallet balance
+2. Deduct wallet amount
+3. Credit merchant internal account
+4. Insert ledger entry
+5. Insert audit trail
+6. Trigger notification event
+7. Send response to Wallet Service
+
+### **Success Response**
+
+```json
+{
+  "transactionId": "TXN-99111",
+  "status": "SUCCESS",
+  "netAmountCredited": 2475.00,
+  "walletFee": 25.00,
+  "message": "Payment processed successfully"
+}
+```
+
+### **Failure Example**
+
+```json
+{
+  "status": "FAILED",
+  "errorCode": "INSUFFICIENT_BALANCE",
+  "message": "Wallet has insufficient funds"
+}
+```
+
+---
+
+## **API 2: Reverse/Compensate Transaction**
+
+(Used when a step fails in the Saga workflow)
+
+### **POST /api/v1/payment/compensate**
+
+Called internally from orchestrator or via async event.
+
+### **Request**
+
+```json
+{
+  "transactionId": "TXN-99111",
+  "reason": "Merchant credit failed"
+}
+```
+
+### **Actions**
+
+* Refund wallet
+* Roll back merchant credit
+* Update ledger to reversed
+* Add audit record
+
+### **Response**
+
+```json
+{
+  "status": "REVERSED",
+  "message": "Transaction reversed successfully"
+}
+```
+
+---
+
+## **API 3: Get Payment Details**
+
+### **GET /api/v1/payment/{transactionId}**
+
+Returns ledger + audit info.
+
+### Response
+
+```json
+{
+  "transactionId": "TXN-99111",
+  "walletId": "W123",
+  "merchantId": "M456",
+  "amount": 2500,
+  "fee": 25,
+  "netAmount": 2475,
+  "status": "SUCCESS",
+  "timestamp": "2025-11-22T09:45:33Z"
+}
+```
+
+---
+
+# ✅ **3. Payment Service Database Design**
+
+Following the workflow from pg 3 of the PDF (“deduct, credit, ledger update, audit info”) .
+
+---
+
+## **A. payment_transaction (core table)**
+
+Tracks each payment end-to-end.
+
+| Column         | Type      | Description                          |
+| -------------- | --------- | ------------------------------------ |
+| transaction_id | VARCHAR   | PK                                   |
+| request_id     | VARCHAR   | original wallet request              |
+| wallet_id      | VARCHAR   | FK                                   |
+| merchant_id    | VARCHAR   | FK                                   |
+| amount         | DECIMAL   | original amount                      |
+| fee            | DECIMAL   | processing fee                       |
+| net_amount     | DECIMAL   | amount credited to merchant          |
+| status         | ENUM      | INITIATED, SUCCESS, FAILED, REVERSED |
+| reason         | VARCHAR   | failure reason                       |
+| created_at     | TIMESTAMP |                                      |
+| updated_at     | TIMESTAMP |                                      |
+
+---
+
+## **B. wallet_balance_snapshot**
+
+Stores wallet balance before & after the transaction (for auditing).
+
+| Column         | Type      |
+| -------------- | --------- |
+| id             | INT PK    |
+| transaction_id | VARCHAR   |
+| old_balance    | DECIMAL   |
+| new_balance    | DECIMAL   |
+| timestamp      | TIMESTAMP |
+
+---
+
+## **C. merchant_credit_log**
+
+Merchant credit info stored here (not actual bank settlement).
+
+| Column          | Type      |
+| --------------- | --------- |
+| id              | INT PK    |
+| transaction_id  | VARCHAR   |
+| merchant_id     | VARCHAR   |
+| credited_amount | DECIMAL   |
+| timestamp       | TIMESTAMP |
+
+---
+
+## **D. transaction_ledger**
+
+This is the immutable ledger mentioned on page 3.
+
+| Column         | Type      | Details                        |
+| -------------- | --------- | ------------------------------ |
+| ledger_id      | VARCHAR   | PK                             |
+| transaction_id | VARCHAR   | FK                             |
+| wallet_id      | VARCHAR   |                                |
+| merchant_id    | VARCHAR   |                                |
+| amount         | DECIMAL   |                                |
+| fee            | DECIMAL   |                                |
+| net_amount     | DECIMAL   |                                |
+| ledger_type    | ENUM      | DEBIT_WALLET / CREDIT_MERCHANT |
+| timestamp      | TIMESTAMP |                                |
+
+---
+
+## **E. audit_log**
+
+Captures every step as required in PDF pg 3.
+
+| Column         | Type      |
+| -------------- | --------- |
+| audit_id       | VARCHAR   |
+| transaction_id | VARCHAR   |
+| event          | VARCHAR   |
+| details        | TEXT      |
+| timestamp      | TIMESTAMP |
+
+Example events:
+
+* VALIDATION_STARTED
+* WALLET_DEBIT_SUCCESS
+* MERCHANT_CREDIT_SUCCESS
+* LEDGER_UPDATED
+* NOTIFICATION_SENT
+* PAYMENT_SUCCESS
+* PAYMENT_FAILED
+
+---
+
+## **F. compensation_queue**
+
+Keeps failed operations for retry.
+
+| Column         | Type                       |
+| -------------- | -------------------------- |
+| id             | VARCHAR                    |
+| transaction_id | VARCHAR                    |
+| failed_step    | VARCHAR                    |
+| retry_count    | INT                        |
+| status         | PENDING / RETRIED / FAILED |
+| last_attempt   | TIMESTAMP                  |
+
+---
+
+# ✅ **4. Detailed Payment Execution Logic (Step-by-Step)**
+
+Based on the required workflow:
+
+### **1. Receive request from Wallet Service**
+
+Insert entry to `payment_transaction` (status = INITIATED)
+
+### **2. Deduct wallet balance (via Wallet Service)**
+
+Call:
+
+```
+PATCH /wallet/{walletId}/deduct
+```
+
+### **3. Record balance snapshot**
+
+### **4. Credit merchant**
+
+Call Merchant Service:
+
+```
+POST /merchant/credit
+```
+
+### **5. Write ledger entries**
+
+* DEBIT_WALLET
+* CREDIT_MERCHANT
+
+### **6. Wallet fee collection**
+
+Typically:
+
+```
+fee = amount * 0.01 (or fixed 25 INR)
+netAmount = amount – fee
+```
+
+### **7. Send Notification event**
+
+Send to Notification Service:
+
+```
+POST /notification/merchant
+```
+
+### **8. Update transaction status → SUCCESS**
+
+---
+
+# ✅ **5. Internal Service Communication**
+
+### Wallet → Payment
+
+**POST /payment/execute**
+
+### Payment → Wallet
+
+(wallet debit)
+**PATCH /wallet/deduct**
+
+### Payment → Merchant
+
+(credit merchant)
+**POST /merchant/credit**
+
+### Payment → Notification
+
+**POST /notify/merchant**
+
+### Payment → Settlement
+
+(optional, after merchant balance update)
+**POST /settlement/initiate**
+
+---
+
+# 🔥 If you want, I can now generate:
+
+✔ Full Spring Boot Payment Service (controller + service + entities + repositories)
+✔ Swagger YAML for Payment Service
+✔ SQL scripts (DDL) for all tables
+✔ Sequence diagrams (Mermaid)
+✔ Kafka event model
+✔ Postman collection
+
+Just tell me what you want next!
