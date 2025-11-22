@@ -1,0 +1,661 @@
+Absolutely — here are **simple, easy-to-understand positive use cases** involving all 4 services:
+
+✔ **Wallet Service**
+✔ **Payment Service**
+✔ **Merchant Service**
+✔ **Notification Service**
+
+These are **only the successful scenarios** (positive flows), based fully on the workflow in your PDF (wallet → payment → merchant → notify) .
+
+---
+
+# ✅ **Positive Case 1: Customer buys a product successfully**
+
+### **Actors:**
+
+Customer → Wallet Service → Payment Service → Merchant Service → Notification Service
+
+---
+
+## **Step 1: Customer views wallet**
+
+Customer opens the app.
+
+**API Call**
+`GET /wallet/C123`
+
+**Result**
+
+```
+{
+  "customerId": "C123",
+  "balance": 5400,
+  "currency": "INR"
+}
+```
+
+---
+
+## **Step 2: Customer initiates purchase**
+
+Customer wants to buy *Nike Shoes* worth ₹2500.
+
+**API Call**
+`POST /wallet/initiatePurchase`
+
+```json
+{
+  "customerId": "C123",
+  "merchantId": "M456",
+  "productName": "Nike Shoes",
+  "productCost": 2500,
+  "currency": "INR"
+}
+```
+
+### **Wallet Service actions**
+
+✔ Checks wallet exists
+✔ Checks currency IN INR
+✔ Checks balance >= 2500
+✔ Creates transaction request (REQ-101)
+✔ Calls Payment Service
+
+---
+
+## **Step 3: Wallet Service → Payment Service**
+
+**API Call**
+`POST /payment/execute`
+
+```json
+{
+  "requestId": "REQ-101",
+  "customerId": "C123",
+  "walletId": "W123",
+  "merchantId": "M456",
+  "amount": 2500,
+  "currency": "INR",
+  "productName": "Nike Shoes"
+}
+```
+
+---
+
+## **Step 4: Payment Service processes payment**
+
+Payment Service performs:
+
+✔ Deduct wallet balance
+✔ Calculate fee (₹25)
+✔ Net amount to merchant = 2475
+✔ Credit merchant account
+✔ Write ledger
+✔ Write audit
+✔ Mark transaction SUCCESS
+
+**Payment Service Response**
+
+```json
+{
+  "transactionId": "TXN-5001",
+  "status": "SUCCESS",
+  "walletFee": 25,
+  "netAmountCredited": 2475
+}
+```
+
+---
+
+## **Step 5: Payment Service → Merchant Service**
+
+**API Call**
+`POST /merchant/credit`
+
+```json
+{
+  "transactionId": "TXN-5001",
+  "merchantId": "M456",
+  "amount": 2475,
+  "currency": "INR"
+}
+```
+
+Merchant service updates:
+
+✔ Merchant balance increased
+✔ Credit log stored
+✔ Mark TXN-5001 as credited
+
+**Response**
+
+```json
+{
+  "transactionId": "TXN-5001",
+  "status": "SUCCESS",
+  "merchantBalance": 12475
+}
+```
+
+---
+
+## **Step 6: Payment Service → Notification Service**
+
+Payment Service triggers both merchant & customer notifications.
+
+### **Notify Merchant**
+
+`POST /notification/merchant`
+
+```json
+{
+  "transactionId": "TXN-5001",
+  "merchantId": "M456",
+  "message": "Payment of ₹2475 received."
+}
+```
+
+### **Notify Customer**
+
+`POST /notification/customer`
+
+```json
+{
+  "transactionId": "TXN-5001",
+  "customerId": "C123",
+  "message": "Your payment of ₹2500 for Nike Shoes was successful!"
+}
+```
+
+Notification Service marks them as **DELIVERED**.
+
+---
+
+## **Step 7: Wallet Service updates request**
+
+Wallet Service updates request REQ-101 → SUCCESS.
+
+**Customer sees:**
+“Payment Successful — Transaction ID TXN-5001”
+
+---
+
+# 🎉 **Final Positive Outcome**
+
+* Wallet debited by ₹2500
+* Merchant credited ₹2475
+* Fee ₹25 collected
+* Customer receives success notification
+* Merchant receives payment notification
+* Ledger & audit entries created
+
+---
+
+# 🚀 **Positive Case 2: Customer checks transaction details**
+
+Customer wants to see the final payment status.
+
+**API Call**
+`GET /wallet/request/REQ-101`
+
+**Result**
+
+```json
+{
+  "requestId": "REQ-101",
+  "transactionId": "TXN-5001",
+  "status": "SUCCESS",
+  "amount": 2500,
+  "netAmountCredited": 2475
+}
+```
+
+---
+
+# 🚀 **Positive Case 3: Merchant views received payments**
+
+**API Call**
+`GET /merchant/M456/transactions`
+
+**Result**
+
+```json
+{
+  "merchantId": "M456",
+  "transactions": [
+    {
+      "transactionId": "TXN-5001",
+      "amount": 2475,
+      "type": "CREDIT",
+      "timestamp": "2025-11-22T10:05:00Z"
+    }
+  ]
+}
+```
+
+---
+
+# 🚀 **Positive Case 4: Customer views notifications**
+
+`GET /notification/customer/C123`
+
+**Result**
+
+```json
+{
+  "customerId": "C123",
+  "notifications": [
+    {
+      "notificationId": "NOTIF-3001",
+      "transactionId": "TXN-5001",
+      "status": "DELIVERED",
+      "message": "Your payment of ₹2500 for Nike Shoes was successful!"
+    }
+  ]
+}
+```
+
+---
+
+# ⭐ Want even simpler?
+
+I can also provide:
+
+✔ A **single diagram** showing all 4 services
+✔ A **single-page simplified workflow**
+✔ A **Postman collection**
+✔ Spring Boot starter code for all 4 services
+✔ A fully integrated **sequence diagram**
+
+Just tell me!
+
+
+
+
+
+
+
+
+
+Yes — below are **detailed database table definitions** (columns, types, primary/foreign keys, indexes, constraints, and brief notes) for the consolidated positive-flow design that covers **Wallet, Payment, Merchant, and Notification** services. These follow the workflows in your uploaded spec (wallet → payment → merchant → notification). 
+
+I’ll present each service’s tables with PostgreSQL-style DDL you can copy/adjust for MySQL or other RDBMS.
+
+---
+
+# 1) Wallet Service — tables & DDL
+
+### `customer`
+
+Stores customer master data.
+
+```sql
+CREATE TABLE customer (
+  customer_id     VARCHAR(36) PRIMARY KEY,
+  name            VARCHAR(200) NOT NULL,
+  email           VARCHAR(255) UNIQUE,
+  phone           VARCHAR(32),
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+```
+
+**Indexes/notes:** index on email for lookup.
+
+---
+
+### `wallet_account`
+
+Tracks wallet balances (single wallet per customer assumed — adapt for multi-wallet).
+
+```sql
+CREATE TABLE wallet_account (
+  wallet_id       VARCHAR(36) PRIMARY KEY,
+  customer_id     VARCHAR(36) NOT NULL REFERENCES customer(customer_id),
+  balance         NUMERIC(18,2) NOT NULL DEFAULT 0.00,
+  currency        VARCHAR(3) NOT NULL,     -- e.g. INR, USD
+  status          VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_wallet_customer ON wallet_account(customer_id);
+```
+
+**Notes:** Use DB-level checks / application locks for concurrent balance updates (SELECT FOR UPDATE or optimistic locking via version column).
+
+---
+
+### `wallet_transaction_request`
+
+Temporary/persistent record of initiation requests (before Payment service settles).
+
+```sql
+CREATE TABLE wallet_transaction_request (
+  request_id      VARCHAR(36) PRIMARY KEY,
+  customer_id     VARCHAR(36) NOT NULL REFERENCES customer(customer_id),
+  wallet_id       VARCHAR(36) NOT NULL REFERENCES wallet_account(wallet_id),
+  merchant_id     VARCHAR(36) NOT NULL,
+  product_name    VARCHAR(255),
+  product_cost    NUMERIC(18,2) NOT NULL,
+  currency        VARCHAR(3) NOT NULL,
+  status          VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- PENDING,SENT_TO_PAYMENT,SUCCESS,FAILED
+  payment_txn_id  VARCHAR(36), -- filled when Payment Service returns txn id
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_req_customer ON wallet_transaction_request(customer_id);
+CREATE INDEX idx_req_status ON wallet_transaction_request(status);
+```
+
+**Notes:** Keep this as source-of-truth for UI; Payment service writes back payment_txn_id and final status.
+
+---
+
+# 2) Payment Service — tables & DDL
+
+### `payment_transaction`
+
+Core transaction table for payment lifecycle.
+
+```sql
+CREATE TABLE payment_transaction (
+  transaction_id  VARCHAR(36) PRIMARY KEY,
+  request_id      VARCHAR(36), -- FK to wallet_transaction_request.request_id (kept as reference)
+  wallet_id       VARCHAR(36) NOT NULL,
+  customer_id     VARCHAR(36) NOT NULL,
+  merchant_id     VARCHAR(36) NOT NULL,
+  amount          NUMERIC(18,2) NOT NULL,   -- original amount
+  fee             NUMERIC(18,2) NOT NULL DEFAULT 0.00,
+  net_amount      NUMERIC(18,2) NOT NULL,   -- amount credited to merchant
+  status          VARCHAR(32) NOT NULL,     -- INITIATED, SUCCESS, FAILED, REVERSED
+  failure_reason  TEXT,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_payment_request ON payment_transaction(request_id);
+CREATE INDEX idx_payment_status ON payment_transaction(status);
+CREATE INDEX idx_payment_wallet ON payment_transaction(wallet_id);
+```
+
+**Notes:** `transaction_id` should be generated as a UUID. `fee` business rule applied here.
+
+---
+
+### `transaction_ledger`
+
+Immutable ledger entries (debits and credits).
+
+```sql
+CREATE TABLE transaction_ledger (
+  ledger_id       VARCHAR(36) PRIMARY KEY,
+  transaction_id  VARCHAR(36) NOT NULL REFERENCES payment_transaction(transaction_id),
+  entry_type      VARCHAR(16) NOT NULL, -- DEBIT_WALLET / CREDIT_MERCHANT / FEE
+  account_id      VARCHAR(36) NOT NULL, -- wallet_id or merchant_id depending on entry_type
+  amount          NUMERIC(18,2) NOT NULL,
+  currency        VARCHAR(3) NOT NULL,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_ledger_txn ON transaction_ledger(transaction_id);
+CREATE INDEX idx_ledger_account ON transaction_ledger(account_id);
+```
+
+**Notes:** Ledger must be append-only; don't update rows — create reversal entries for reversals.
+
+---
+
+### `wallet_balance_snapshot`
+
+Snapshots before/after a wallet debit for audit and reconciliation.
+
+```sql
+CREATE TABLE wallet_balance_snapshot (
+  id              BIGSERIAL PRIMARY KEY,
+  transaction_id  VARCHAR(36) NOT NULL REFERENCES payment_transaction(transaction_id),
+  wallet_id       VARCHAR(36) NOT NULL,
+  old_balance     NUMERIC(18,2) NOT NULL,
+  new_balance     NUMERIC(18,2) NOT NULL,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_snapshot_wallet ON wallet_balance_snapshot(wallet_id);
+```
+
+---
+
+### `audit_log`
+
+General audit trail for payment steps.
+
+```sql
+CREATE TABLE audit_log (
+  audit_id        BIGSERIAL PRIMARY KEY,
+  transaction_id  VARCHAR(36) NULL,
+  event_type      VARCHAR(64) NOT NULL,
+  details         JSONB,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_audit_txn ON audit_log(transaction_id);
+```
+
+**Notes:** store details as JSONB for flexible structured data.
+
+---
+
+### `compensation_queue`
+
+For retries/compensating actions (e.g., if a downstream step failed).
+
+```sql
+CREATE TABLE compensation_queue (
+  id              BIGSERIAL PRIMARY KEY,
+  transaction_id  VARCHAR(36) NOT NULL REFERENCES payment_transaction(transaction_id),
+  failed_step     VARCHAR(64) NOT NULL,
+  payload         JSONB,
+  retry_count     INT NOT NULL DEFAULT 0,
+  status          VARCHAR(16) NOT NULL DEFAULT 'PENDING', -- PENDING, IN_PROGRESS, FAILED, DONE
+  last_attempt_at TIMESTAMP WITH TIME ZONE,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_comp_txn ON compensation_queue(transaction_id);
+```
+
+---
+
+# 3) Merchant Service — tables & DDL
+
+### `merchant`
+
+Merchant master information.
+
+```sql
+CREATE TABLE merchant (
+  merchant_id     VARCHAR(36) PRIMARY KEY,
+  merchant_name   VARCHAR(200) NOT NULL,
+  category        VARCHAR(100),
+  currency        VARCHAR(3) NOT NULL,
+  status          VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+```
+
+---
+
+### `merchant_account`
+
+Tracks merchant internal (wallet-side) balance.
+
+```sql
+CREATE TABLE merchant_account (
+  id              BIGSERIAL PRIMARY KEY,
+  merchant_id     VARCHAR(36) NOT NULL REFERENCES merchant(merchant_id),
+  current_balance NUMERIC(18,2) NOT NULL DEFAULT 0.00,
+  last_updated    TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE UNIQUE INDEX ux_merchant_account_merchant ON merchant_account(merchant_id);
+```
+
+**Notes:** Use DB transactions when updating balances to ensure consistency.
+
+---
+
+### `merchant_credit_log`
+
+Logs credits to merchant; `transaction_id` UNIQUE for idempotency.
+
+```sql
+CREATE TABLE merchant_credit_log (
+  id              BIGSERIAL PRIMARY KEY,
+  transaction_id  VARCHAR(36) NOT NULL UNIQUE,   -- ensures idempotency
+  merchant_id     VARCHAR(36) NOT NULL REFERENCES merchant(merchant_id),
+  credited_amount NUMERIC(18,2) NOT NULL,
+  currency        VARCHAR(3) NOT NULL,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_merchant_credit_merchant ON merchant_credit_log(merchant_id);
+```
+
+---
+
+### `merchant_debit_log`
+
+For debits or reversals from merchant (compensations).
+
+```sql
+CREATE TABLE merchant_debit_log (
+  id              BIGSERIAL PRIMARY KEY,
+  transaction_id  VARCHAR(36),
+  merchant_id     VARCHAR(36) NOT NULL REFERENCES merchant(merchant_id),
+  debited_amount  NUMERIC(18,2) NOT NULL,
+  reason          TEXT,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+```
+
+---
+
+### `merchant_audit_log`
+
+Merchant-specific audit entries.
+
+```sql
+CREATE TABLE merchant_audit_log (
+  audit_id        BIGSERIAL PRIMARY KEY,
+  merchant_id     VARCHAR(36),
+  action          VARCHAR(64),
+  details         JSONB,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+```
+
+---
+
+# 4) Notification Service — tables & DDL
+
+### `notification`
+
+Records each notification attempt and status.
+
+```sql
+CREATE TABLE notification (
+  notification_id VARCHAR(36) PRIMARY KEY,
+  transaction_id  VARCHAR(36),
+  customer_id     VARCHAR(36),
+  merchant_id     VARCHAR(36),
+  channel         VARCHAR(16) NOT NULL, -- EMAIL, SMS, PUSH
+  status          VARCHAR(16) NOT NULL DEFAULT 'PENDING', -- PENDING,SENT,DELIVERED,FAILED
+  message         TEXT,
+  provider_meta   JSONB, -- provider response (optional)
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  sent_at         TIMESTAMP WITH TIME ZONE,
+  delivered_at    TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_notif_txn ON notification(transaction_id);
+CREATE INDEX idx_notif_customer ON notification(customer_id);
+CREATE INDEX idx_notif_merchant ON notification(merchant_id);
+```
+
+---
+
+### `notification_retry_log`
+
+Retries and outcomes.
+
+```sql
+CREATE TABLE notification_retry_log (
+  id              BIGSERIAL PRIMARY KEY,
+  notification_id VARCHAR(36) NOT NULL REFERENCES notification(notification_id),
+  retry_count     INT NOT NULL,
+  status          VARCHAR(16),
+  provider_meta   JSONB,
+  attempted_at    TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+```
+
+---
+
+### `notification_event_log`
+
+Stores raw events consumed (for replay/diagnostics).
+
+```sql
+CREATE TABLE notification_event_log (
+  event_id        VARCHAR(36) PRIMARY KEY,
+  event_type      VARCHAR(64),
+  payload         JSONB,
+  received_at     TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+```
+
+---
+
+### `communication_channel_config` *(optional)*
+
+Templates & provider configuration.
+
+```sql
+CREATE TABLE communication_channel_config (
+  id              BIGSERIAL PRIMARY KEY,
+  channel         VARCHAR(16) NOT NULL,
+  template_name   VARCHAR(100),
+  template_body   TEXT,
+  provider        VARCHAR(100),
+  config_json     JSONB,
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+```
+
+---
+
+# Extra cross-service considerations (practical notes)
+
+* **Idempotency:** enforce uniqueness on `payment_transaction.request_id` or `merchant_credit_log.transaction_id`. Use idempotency keys on APIs.
+* **Concurrency:** update balances using DB transactions + `SELECT ... FOR UPDATE` or optimistic locking (version column).
+* **Audit & retention:** keep immutable ledger/ audit_log for reconciliation; consider partitioning older data (time-based) or moving to archive store.
+* **Scaling:** put hot tables behind read replicas (e.g., `wallet_account` reads) and use horizontal partitioning for ledger/audit tables.
+* **Timezones/dates:** store timestamps in UTC (`TIMESTAMP WITH TIME ZONE`) for consistency.
+* **Data types:** `NUMERIC(18,2)` for amounts; adjust precision for currencies needing more precision.
+* **Foreign keys:** for cross-service references (e.g., payment_transaction.request_id) you may or may not enforce FK constraints across microservice DBs — many teams prefer keeping each service DB autonomous and relying on `request_id` as a reference without enforced FK.
+* **Compensation/Retry:** `compensation_queue` and `notification_retry_log` help with eventual consistency.
+
+---
+
+# Want SQL DDL scripts for your specific RDBMS?
+
+I can:
+
+* produce **full SQL DDL** ready for PostgreSQL or MySQL, or
+* generate **Flyway/Liquibase** migration files,
+* or produce an **ER diagram** (image or Mermaid).
+
+Which would you like next?
+
